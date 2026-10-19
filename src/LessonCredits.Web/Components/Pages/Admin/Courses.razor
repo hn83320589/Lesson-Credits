@@ -101,7 +101,7 @@
 
     private async Task AddAsync()
     {
-        var input = new NewCourse(form.Name, form.Subject, form.Type, form.TeacherId, form.DayOfWeek, TimeOnly.FromDateTime(form.StartTime), 60);
+        var input = new NewCourse(form.Name, form.Subject, form.Type, form.TeacherId, form.DayOfWeek, form.StartTime, 60);
         Course? course = null;
         await RunAsync(async () => course = await AdminService.AddCourseAsync(input, Actor));
         if (course is not null)
@@ -143,6 +143,6 @@
         public CourseType Type { get; set; } = CourseType.Group;
         public int TeacherId { get; set; }
         public DayOfWeek DayOfWeek { get; set; } = DayOfWeek.Monday;
-        public DateTime StartTime { get; set; } = DateTime.Today.AddHours(16);
+        public TimeOnly StartTime { get; set; } = new(16, 0);
     }
 }
