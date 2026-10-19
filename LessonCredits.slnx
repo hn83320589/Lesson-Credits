@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LessonCredits.Core/LessonCredits.Core.csproj" />
+    <Project Path="src/LessonCredits.Web/LessonCredits.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LessonCredits.Tests/LessonCredits.Tests.csproj" />
+  </Folder>
+</Solution>
