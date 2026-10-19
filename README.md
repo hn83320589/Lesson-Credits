@@ -1,10 +1,12 @@
 # Lesson Credits — 才藝教室上課點數與補課管理
 
+[![CI](https://github.com/hn83320589/Lesson-Credits/actions/workflows/ci.yml/badge.svg)](https://github.com/hn83320589/Lesson-Credits/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 鋼琴與美術才藝教室的點數、點名、補課與退費管理系統。取代 Excel 與紙本點名卡，讓「明明請過假怎麼還扣點」、「點數什麼時候過期」、「中途不上要退多少」都能從系統紀錄直接回答。
 
 - .NET 10、Blazor Web App（Interactive Server）
 - EF Core + SQLite（附 migration）
-- xUnit 單元測試 61 個（另附 [測試報告](docs/test-report.md)）
+- xUnit 單元測試 68 個（另附 [測試報告](docs/test-report.md)），GitHub Actions 於每次 push 自動建置與測試
 
 ## 啟動方式
 
@@ -107,7 +109,8 @@ dotnet test
 
 - 已過期的點數不退。
 - 小數只在**總額**四捨五入一次（MidpointRounding.AwayFromZero；.NET 預設是銀行家捨入，已明確指定）。
-- 店長確認後：該學生**所有批次（含已過期）的剩餘點數歸零**、留下退費紀錄與逐批明細、未使用的補課資格作廢、學生標記為已退費（之後無法點名為出席；再次購買會恢復在學）。
+- 店長確認後：該學生**所有批次（含已過期）的剩餘點數歸零**、留下退費紀錄與逐批明細、未使用的補課資格作廢、學生標記為已退費（之後無法點名或請假；再次購買會恢復在學）。
+- **退費後帳務鎖定**：退費金額是依確認當下的剩餘點數結清的。之後若修正退費前場次的點名，而修正會改變點數或補課資格（例如出席改請假會還原 1 點），系統會拒絕，避免點數在退費後重新出現、又不在退費金額內。出席與缺席互改不影響點數，仍可修正。
 
 範例（單元測試 `Refund_matches_hand_calculation_with_two_prices_and_an_expired_batch`）：
 
@@ -198,11 +201,12 @@ LessonCredits.slnx
 - **時間**：所有「現在」都透過注入的 `TimeProvider` 取得，再由 `TaipeiClock` 轉成台灣時間；測試用 `FakeTimeProvider` 精準控制「上課前 24 小時 1 分」等邊界。
 - **資料庫型別**：時間存台灣本地 `DateTime`，金額存整數。EF Core 的 SQLite provider 無法在 SQL 中比較 `DateTimeOffset`，也無法加總 `decimal`，所以單價改在記憶體中計算。
 - **DbContext 生命週期**：Blazor Server 的 circuit 會長時間存活，所以服務使用 `IDbContextFactory`，每個操作建立一個短生命週期的 context。
+- **併發控制**：點名、修正、退費、補課預約、停課、選課都是「先讀餘額或人數做判斷，再寫入」。這些操作在**第一次讀取前**就開始交易；Microsoft.Data.Sqlite 以 `BEGIN IMMEDIATE` 開始交易，會先取得寫入鎖，所以兩位老師同時幫同一位學生點名時，後到者會等前者 commit，再讀到最新餘額，不會扣成負數、多退款或超收補課。`ConcurrencyTests` 用第二條連線先佔住寫入鎖，確定性地重現這些競爭情況。
 - **服務測試使用 SQLite in-memory**，不用 EF InMemory provider，因為後者不檢查外鍵與 unique 約束。
 
 ## 測試
 
-`dotnet test` 共 61 個測試案例，對應驗收標準如下。完整的驗收結果（含端對端測試與資料一致性檢查）見 [docs/test-report.md](docs/test-report.md)。
+`dotnet test` 共 68 個測試案例，對應驗收標準如下。完整的驗收結果（含端對端測試與資料一致性檢查）見 [docs/test-report.md](docs/test-report.md)。
 
 | 驗收標準 | 測試 |
 |---|---|
@@ -214,7 +218,8 @@ LessonCredits.slnx
 | 出席 → 請假 → 出席：點數與資格同步 | `Correcting_present_to_leave_restores_credit_and_grants_makeup_then_back_to_present_reverses_both` |
 | 點數用完無法出席並顯示原因 | `Cannot_mark_present_without_credits_and_reason_is_given`、`Expired_credits_cannot_be_used_and_reason_mentions_expiry` |
 | 退費金額與手算一致 | `Refund_matches_hand_calculation_with_two_prices_and_an_expired_batch`、`Refund_quote_matches_hand_calculation` |
-| 退費後餘額 0、無法出席 | `Confirmed_refund_zeroes_credits_and_blocks_further_attendance` |
+| 退費後餘額 0、無法出席 | `Confirmed_refund_zeroes_credits_and_blocks_further_attendance`、`RefundGuardTests`（退費後修正點名、退費後請假） |
+| 併發：同時扣點、退費與點名同時進行、同時預約補課 | `ConcurrencyTests` |
 | 提醒名單兩種條件 | `ReminderRulesTests`、`Reminder_list_covers_low_balance_and_expiring_soon` |
 | 月報收入與手算一致 | `Revenue_matches_hand_calculation_including_a_restored_deduction`、`Monthly_report_matches_hand_calculation` |
 | 老師權限 | `Teacher_cannot_take_attendance_for_another_teachers_session`、`Teacher_only_sees_own_courses_and_sessions`、`Teacher_cannot_confirm_refund` 等 |
@@ -227,3 +232,7 @@ LessonCredits.slnx
 - 一門課只有一位老師；老師請假、代課不在範圍內。
 - 不支援修改課程時段後重新排場次；退費不會自動將學生退出課程名單。
 - 資料量以 100 位學生、保存 3 年為上限，查詢未特別做分頁。
+
+## 授權
+
+[MIT](LICENSE)
