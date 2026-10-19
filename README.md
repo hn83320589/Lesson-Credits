@@ -4,7 +4,7 @@
 
 - .NET 10、Blazor Web App（Interactive Server）
 - EF Core + SQLite（附 migration）
-- xUnit 單元測試 60 個
+- xUnit 單元測試 61 個（另附 [測試報告](docs/test-report.md)）
 
 ## 啟動方式
 
@@ -202,7 +202,7 @@ LessonCredits.slnx
 
 ## 測試
 
-`dotnet test` 共 60 個測試，對應驗收標準：
+`dotnet test` 共 61 個測試案例，對應驗收標準如下。完整的驗收結果（含端對端測試與資料一致性檢查）見 [docs/test-report.md](docs/test-report.md)。
 
 | 驗收標準 | 測試 |
 |---|---|
