@@ -34,6 +34,7 @@ public sealed class TestEnv : IDisposable
         Makeup = new MakeupService(Factory, Clock);
         Refunds = new RefundService(Factory, Clock);
         Reports = new ReportService(Factory, Clock);
+        Admin = new AdminService(Factory, Clock);
     }
 
     public IDbContextFactory<AppDbContext> Factory { get; }
@@ -45,6 +46,7 @@ public sealed class TestEnv : IDisposable
     public MakeupService Makeup { get; }
     public RefundService Refunds { get; }
     public ReportService Reports { get; }
+    public AdminService Admin { get; }
 
     public Actor Owner { get; } = new(1, Role.Owner, null);
 
