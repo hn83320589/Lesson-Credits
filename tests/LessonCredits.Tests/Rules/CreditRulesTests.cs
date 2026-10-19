@@ -66,6 +66,16 @@ public class CreditRulesTests
     }
 
     [Fact]
+    public void PickBatchForDeduction_can_use_a_batch_bought_after_the_session_date()
+    {
+        // 補點舊場次時，家長可能已在場次之後購買點數補足欠的課；只看到期日，不看購買日
+        var sessionDate = Today.AddDays(-7);
+        var boughtLater = new BatchBalance(1, Today, CreditRules.ExpiryDate(Today), 10, 800m);
+
+        Assert.Equal(1, CreditRules.PickBatchForDeduction([boughtLater], sessionDate)?.BatchId);
+    }
+
+    [Fact]
     public void PickBatchForDeduction_returns_null_when_no_usable_credit()
     {
         var batches = new[] { Batch(1, expiresOn: Today.AddDays(-1), remaining: 5) };
