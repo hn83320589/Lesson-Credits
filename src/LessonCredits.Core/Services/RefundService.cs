@@ -20,6 +20,9 @@ public class RefundService(IDbContextFactory<AppDbContext> dbFactory, TaipeiCloc
     {
         actor.EnsureOwner();
         await using var db = await dbFactory.CreateDbContextAsync();
+        // 讀取剩餘點數前就開始交易：避免試算後、寫入前有人扣點，造成多退款或扣成負數。
+        // 需要 Refund.Id 才能寫流水帳，分兩次 SaveChanges，同一個交易保證全有或全無。
+        await using var tx = await db.BeginWriteTransactionAsync();
         var student = await db.Students.FindAsync(studentId) ?? throw new NotFoundException("找不到學生。");
         var balances = await CreditLedger.LoadBalancesAsync(db, studentId);
         var quote = RefundCalculator.Quote(balances, clock.Today);
@@ -28,8 +31,6 @@ public class RefundService(IDbContextFactory<AppDbContext> dbFactory, TaipeiCloc
             throw new BusinessRuleException("此學生沒有剩餘點數。");
         }
 
-        // 需要 Refund.Id 才能寫流水帳，分兩次 SaveChanges，以交易保證全有或全無
-        await using var tx = await db.Database.BeginTransactionAsync();
         var now = clock.Now;
         var refund = new Refund
         {

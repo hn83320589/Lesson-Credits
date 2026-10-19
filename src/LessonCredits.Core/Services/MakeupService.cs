@@ -87,6 +87,7 @@ public class MakeupService(IDbContextFactory<AppDbContext> dbFactory, TaipeiCloc
     {
         actor.EnsureOwner();
         await using var db = await dbFactory.CreateDbContextAsync();
+        await using var tx = await db.BeginWriteTransactionAsync();
         var credit = await db.MakeupCredits.FindAsync(creditId) ?? throw new NotFoundException("找不到補課資格。");
         var session = await db.Sessions
             .Include(s => s.Course!).ThenInclude(c => c.Enrollments)
@@ -135,6 +136,7 @@ public class MakeupService(IDbContextFactory<AppDbContext> dbFactory, TaipeiCloc
         db.MakeupBookings.Add(booking);
         credit.Status = MakeupStatus.Booked;
         await db.SaveChangesAsync();
+        await tx.CommitAsync();
         return booking;
     }
 
@@ -142,6 +144,7 @@ public class MakeupService(IDbContextFactory<AppDbContext> dbFactory, TaipeiCloc
     {
         actor.EnsureOwner();
         await using var db = await dbFactory.CreateDbContextAsync();
+        await using var tx = await db.BeginWriteTransactionAsync();
         var booking = await db.MakeupBookings
             .Include(b => b.MakeupCredit)
             .Include(b => b.Session)
@@ -160,5 +163,6 @@ public class MakeupService(IDbContextFactory<AppDbContext> dbFactory, TaipeiCloc
         booking.IsCancelled = true;
         booking.MakeupCredit.Status = MakeupStatus.Available;
         await db.SaveChangesAsync();
+        await tx.CommitAsync();
     }
 }

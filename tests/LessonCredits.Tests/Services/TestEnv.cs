@@ -9,18 +9,31 @@ using Microsoft.Extensions.Time.Testing;
 namespace LessonCredits.Tests.Services;
 
 /// <summary>
-/// 每個測試一個獨立的 SQLite in-memory 資料庫。
+/// 每個測試一個獨立的 SQLite 資料庫。
 /// 不用 EF InMemory provider，因為它不檢查外鍵與 unique 約束。
+/// 預設為 in-memory（所有 DbContext 共用一條連線）；併發測試需要多條連線互相競爭鎖，改用暫存檔。
 /// </summary>
 public sealed class TestEnv : IDisposable
 {
-    private readonly SqliteConnection _connection;
+    private readonly SqliteConnection? _sharedConnection;
 
-    public TestEnv()
+    public TestEnv(bool useFileDatabase = false)
     {
-        _connection = new SqliteConnection("DataSource=:memory:");
-        _connection.Open();
-        Factory = new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_connection).Options);
+        DbContextOptions<AppDbContext> options;
+        if (useFileDatabase)
+        {
+            // 關閉連線池，結束時才能刪除暫存檔
+            ConnectionString = $"Data Source={Path.Combine(Path.GetTempPath(), $"lessoncredits-test-{Guid.NewGuid():N}.db")};Pooling=False";
+            options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(ConnectionString).Options;
+        }
+        else
+        {
+            _sharedConnection = new SqliteConnection("DataSource=:memory:");
+            _sharedConnection.Open();
+            options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_sharedConnection).Options;
+        }
+
+        Factory = new TestDbContextFactory(options);
         using var db = Factory.CreateDbContext();
         db.Database.EnsureCreated();
 
@@ -38,6 +51,9 @@ public sealed class TestEnv : IDisposable
     }
 
     public IDbContextFactory<AppDbContext> Factory { get; }
+
+    /// <summary>暫存檔資料庫的連線字串；in-memory 模式為 null。</summary>
+    public string? ConnectionString { get; }
     public FakeTimeProvider Time { get; }
     public TaipeiClock Clock { get; }
     public CreditService Credits { get; }
@@ -149,7 +165,14 @@ public sealed class TestEnv : IDisposable
 
     public int Balance(int studentId) => Credits.GetUsableBalanceAsync(studentId).GetAwaiter().GetResult();
 
-    public void Dispose() => _connection.Dispose();
+    public void Dispose()
+    {
+        _sharedConnection?.Dispose();
+        if (ConnectionString is not null)
+        {
+            File.Delete(new SqliteConnectionStringBuilder(ConnectionString).DataSource);
+        }
+    }
 
     private sealed class TestDbContextFactory(DbContextOptions<AppDbContext> options) : IDbContextFactory<AppDbContext>
     {

@@ -57,6 +57,7 @@ public class ScheduleService(IDbContextFactory<AppDbContext> dbFactory, TaipeiCl
     {
         actor.EnsureOwner();
         await using var db = await dbFactory.CreateDbContextAsync();
+        await using var tx = await db.BeginWriteTransactionAsync();
         if (await db.ClosureDays.AnyAsync(c => c.Date == date))
         {
             throw new BusinessRuleException($"{date:yyyy-MM-dd} 已經是停課日。");
@@ -87,5 +88,6 @@ public class ScheduleService(IDbContextFactory<AppDbContext> dbFactory, TaipeiCl
 
         db.ClosureDays.Add(new ClosureDay { Date = date, Reason = reason });
         await db.SaveChangesAsync();
+        await tx.CommitAsync();
     }
 }

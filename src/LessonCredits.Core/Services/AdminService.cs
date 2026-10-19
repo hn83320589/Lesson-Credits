@@ -217,6 +217,7 @@ public class AdminService(IDbContextFactory<AppDbContext> dbFactory, TaipeiClock
     {
         actor.EnsureOwner();
         await using var db = await dbFactory.CreateDbContextAsync();
+        await using var tx = await db.BeginWriteTransactionAsync();
         var course = await db.Courses.Include(c => c.Enrollments).SingleOrDefaultAsync(c => c.Id == courseId)
             ?? throw new NotFoundException("找不到課程。");
         if (course.Enrollments.Any(e => e.StudentId == studentId))
@@ -238,6 +239,7 @@ public class AdminService(IDbContextFactory<AppDbContext> dbFactory, TaipeiClock
 
         db.Enrollments.Add(new Enrollment { CourseId = courseId, StudentId = studentId });
         await db.SaveChangesAsync();
+        await tx.CommitAsync();
     }
 
     public async Task UnenrollAsync(int courseId, int studentId, Actor actor)

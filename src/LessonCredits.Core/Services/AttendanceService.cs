@@ -120,6 +120,7 @@ public class AttendanceService(IDbContextFactory<AppDbContext> dbFactory, Taipei
     public async Task<LeaveRequest> RequestLeaveAsync(int sessionId, int studentId, Actor actor)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
+        await using var tx = await db.BeginWriteTransactionAsync();
         var session = await LoadSessionAsync(db, sessionId, actor);
         var now = clock.Now;
         if (now >= session.StartAt)
@@ -148,12 +149,14 @@ public class AttendanceService(IDbContextFactory<AppDbContext> dbFactory, Taipei
         };
         db.LeaveRequests.Add(leave);
         await db.SaveChangesAsync();
+        await tx.CommitAsync();
         return leave;
     }
 
     public async Task RecordAsync(int sessionId, int studentId, AttendanceStatus status, Actor actor)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
+        await using var tx = await db.BeginWriteTransactionAsync();
         var session = await LoadSessionAsync(db, sessionId, actor);
         var now = clock.Now;
         if (now < session.StartAt)
@@ -195,6 +198,7 @@ public class AttendanceService(IDbContextFactory<AppDbContext> dbFactory, Taipei
 
         db.Attendances.Add(attendance);
         await db.SaveChangesAsync();
+        await tx.CommitAsync();
     }
 
     /// <summary>
@@ -210,6 +214,7 @@ public class AttendanceService(IDbContextFactory<AppDbContext> dbFactory, Taipei
         }
 
         await using var db = await dbFactory.CreateDbContextAsync();
+        await using var tx = await db.BeginWriteTransactionAsync();
         var attendance = await db.Attendances
             .Include(a => a.Session!).ThenInclude(s => s.Course)
             .Include(a => a.MakeupBooking!).ThenInclude(b => b.MakeupCredit)
@@ -236,6 +241,7 @@ public class AttendanceService(IDbContextFactory<AppDbContext> dbFactory, Taipei
         attendance.CorrectedAt = now;
         attendance.CorrectionNote = $"{oldStatus.Label()} → {newStatus.Label()}：{note.Trim()}";
         await db.SaveChangesAsync();
+        await tx.CommitAsync();
     }
 
     private static bool ChangesCreditsOrMakeup(AttendanceStatus oldStatus, AttendanceStatus newStatus) =>
