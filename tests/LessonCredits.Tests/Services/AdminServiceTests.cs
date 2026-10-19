@@ -64,5 +64,19 @@ public class AdminServiceTests : IDisposable
             () => _env.Attendance.GetRosterAsync(otherSession.First(s => !sessions.Any(m => m.SessionId == s.SessionId)).SessionId, actor));
     }
 
+    [Fact]
+    public async Task Courses_are_listed_from_monday_to_sunday_then_by_time()
+    {
+        var teacher = _env.AddTeacher();
+        foreach (var (day, hour) in new[] { (DayOfWeek.Sunday, 10), (DayOfWeek.Friday, 16), (DayOfWeek.Monday, 17), (DayOfWeek.Monday, 16), (DayOfWeek.Saturday, 9) })
+        {
+            await _env.Admin.AddCourseAsync(new NewCourse($"{day}{hour}", Subject.Art, CourseType.Group, teacher, day, new TimeOnly(hour, 0), 60), _env.Owner);
+        }
+
+        var courses = await _env.Admin.ListCoursesAsync(_env.Owner);
+
+        Assert.Equal(["Monday16", "Monday17", "Friday16", "Saturday9", "Sunday10"], courses.Select(c => c.Name).ToArray());
+    }
+
     public void Dispose() => _env.Dispose();
 }

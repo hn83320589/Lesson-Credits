@@ -180,11 +180,13 @@ public class AdminService(IDbContextFactory<AppDbContext> dbFactory, TaipeiClock
             .Where(c => actor.Role == Role.Owner || c.TeacherId == actor.TeacherId)
             .Include(c => c.Teacher)
             .Include(c => c.Enrollments).ThenInclude(e => e.Student)
-            .OrderBy(c => c.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)c.DayOfWeek).ThenBy(c => c.StartTime)
             .AsNoTracking()
             .ToListAsync();
 
+        // 星期以字串儲存，在 SQL 排序會變成字母序，因此載入後再依週一到週日排序
         return courses
+            .OrderBy(c => c.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)c.DayOfWeek)
+            .ThenBy(c => c.StartTime)
             .Select(c => new CourseRow(
                 c.Id, c.Name, c.Subject, c.Type, c.TeacherId, c.Teacher!.Name, c.DayOfWeek, c.StartTime, c.DurationMinutes, c.Capacity,
                 c.Enrollments.Select(e => (e.StudentId, e.Student!.Name)).OrderBy(s => s.Name).ToList()))
