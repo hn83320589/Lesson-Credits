@@ -6,7 +6,7 @@
 
 - .NET 10、Blazor Web App（Interactive Server）
 - EF Core + SQLite（附 migration）
-- xUnit 單元測試 68 個（另附 [測試報告](docs/test-report.md)），GitHub Actions 於每次 push 自動建置與測試
+- xUnit 單元測試 73 個（另附 [測試報告](docs/test-report.md)），GitHub Actions 於每次 push 自動建置與測試
 
 ## 啟動方式
 
@@ -205,12 +205,12 @@ LessonCredits.slnx
 - **時間**：所有「現在」都透過注入的 `TimeProvider` 取得，再由 `TaipeiClock` 轉成台灣時間；測試用 `FakeTimeProvider` 精準控制「上課前 24 小時 1 分」等邊界。
 - **資料庫型別**：時間存台灣本地 `DateTime`，金額存整數。EF Core 的 SQLite provider 無法在 SQL 中比較 `DateTimeOffset`，也無法加總 `decimal`，所以單價改在記憶體中計算。
 - **DbContext 生命週期**：Blazor Server 的 circuit 會長時間存活，所以服務使用 `IDbContextFactory`，每個操作建立一個短生命週期的 context。
-- **併發控制**：點名、修正、退費、補課預約、停課、選課都是「先讀餘額或人數做判斷，再寫入」。這些操作在**第一次讀取前**就開始交易；Microsoft.Data.Sqlite 以 `BEGIN IMMEDIATE` 開始交易，會先取得寫入鎖，所以兩位老師同時幫同一位學生點名時，後到者會等前者 commit，再讀到最新餘額，不會扣成負數、多退款或超收補課。`ConcurrencyTests` 用第二條連線先佔住寫入鎖，確定性地重現這些競爭情況。
+- **併發控制**：點名、修正、退費、補課預約、停課、選課都是「先讀餘額或人數做判斷，再寫入」。這些操作在**第一次讀取前**就開始交易；Microsoft.Data.Sqlite 以 `BEGIN IMMEDIATE` 開始交易，會先取得寫入鎖，所以兩位老師同時幫同一位學生點名時，後到者會等前者 commit，再讀到最新餘額，不會扣成負數、多退款或超收補課。`ConcurrencyTests` 用第二條連線先佔住寫入鎖，再以 EF Core interceptor 在受測操作「開始交易」時發出訊號，才讓第二條連線 commit，交錯時機不依賴時間差。已用突變測試確認：把讀取移回交易外，三個測試每次都會失敗。
 - **服務測試使用 SQLite in-memory**，不用 EF InMemory provider，因為後者不檢查外鍵與 unique 約束。
 
 ## 測試
 
-`dotnet test` 共 68 個測試案例，對應驗收標準如下。完整的驗收結果（含端對端測試與資料一致性檢查）見 [docs/test-report.md](docs/test-report.md)。
+`dotnet test` 共 73 個測試案例，對應驗收標準如下。完整的驗收結果（含端對端測試與資料一致性檢查）見 [docs/test-report.md](docs/test-report.md)。
 
 | 驗收標準 | 測試 |
 |---|---|
@@ -222,7 +222,7 @@ LessonCredits.slnx
 | 出席 → 請假 → 出席：點數與資格同步 | `Correcting_present_to_leave_restores_credit_and_grants_makeup_then_back_to_present_reverses_both` |
 | 點數用完無法出席並顯示原因 | `Cannot_mark_present_without_credits_and_reason_is_given`、`Expired_credits_cannot_be_used_and_reason_mentions_expiry` |
 | 退費金額與手算一致 | `Refund_matches_hand_calculation_with_two_prices_and_an_expired_batch`、`Refund_quote_matches_hand_calculation` |
-| 退費後餘額 0、無法出席 | `Confirmed_refund_zeroes_credits_and_blocks_further_attendance`、`RefundGuardTests`（退費後修正點名、退費後請假） |
+| 退費後餘額 0、無法出席 | `Confirmed_refund_zeroes_credits_and_blocks_further_attendance`、`RefundGuardTests`（退費後修正點名、補點名、請假） |
 | 併發：同時扣點、退費與點名同時進行、同時預約補課 | `ConcurrencyTests` |
 | 提醒名單兩種條件 | `ReminderRulesTests`、`Reminder_list_covers_low_balance_and_expiring_soon` |
 | 月報收入與手算一致 | `Revenue_matches_hand_calculation_including_a_restored_deduction`、`Monthly_report_matches_hand_calculation` |

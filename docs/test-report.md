@@ -5,7 +5,7 @@
 | 測試日期 | 2026-10-19（台灣時間 19:18 ～ 19:25） |
 | 測試環境 | macOS、.NET SDK 10.0.402、EF Core 10.0.13、SQLite |
 | 測試範圍 | 題目所列全部 15 項驗收標準、交付物、技術限制 |
-| 結論 | **15 / 15 項驗收標準通過**；驗收時發現 3 個小瑕疵、程式碼審查後再修正 2 個帳務問題（見第 5、7 節），皆已補測試並重新驗證 |
+| 結論 | **15 / 15 項驗收標準通過**；驗收時發現 3 個小瑕疵，兩輪程式碼審查後修正 3 個帳務問題並強化併發測試（見第 5、7 節），皆已補測試並重新驗證 |
 
 ## 1. 測試方法
 
@@ -33,7 +33,7 @@
 | 11 | 提醒名單涵蓋「剩餘點數不足」與「即將到期」，並有單元測試 | `ReminderRulesTests` ×4、`Reminder_list_covers_low_balance_and_expiring_soon` | 畫面 6 位（3 位點數不足、3 位即將到期），與獨立 SQL 計算**完全一致**；已退費學生不列入 | ✅ |
 | 12 | 月報點數收入與手算一致 | `Revenue_matches_hand_calculation_including_a_restored_deduction`（= 3,050）、`Monthly_report_matches_hand_calculation`（= 3,850 / 800） | 10 月四位老師的授課堂數、扣點數、收入與獨立 SQL 計算**完全一致**（合計 24 堂、44 點、NT$ 32,850） | ✅ |
 | 13 | 老師看不到其他老師的課程，也無法進入退費與月報頁；直接輸入網址會被導回或顯示無權限 | `Teacher_only_sees_own_courses_and_sessions`、`Teacher_cannot_take_attendance_for_another_teachers_session`、`Teacher_cannot_confirm_refund`、`Teacher_cannot_correct_attendance`、`Teacher_cannot_buy_credits`、`Teacher_cannot_read_student_details` | 老師 `chen`：場次列表沒有其他老師的課；10 個店長頁面網址全部導向 **/forbidden**；開啟其他老師的場次顯示「您沒有權限存取其他老師的課程」，且**沒有洩漏學生名單**。未登入時導向登入頁 | ✅ |
-| 14 | 單元測試至少 20 個，`dotnet test` 全數通過 | **68 個測試案例全部通過**（含審查後新增的 7 個），GitHub Actions 每次 push 自動執行 | — | ✅ |
+| 14 | 單元測試至少 20 個，`dotnet test` 全數通過 | **73 個測試案例全部通過**（含兩輪審查後新增的 12 個），GitHub Actions 每次 push 自動執行 | — | ✅ |
 | 15 | 交付物 | — | 見第 4 節 | ✅ |
 
 ## 3. 資料一致性檢查
@@ -97,11 +97,21 @@
 | R-2 | 扣點、退費、補課預約都是「先讀再寫」，讀取不在交易內，同時操作可能扣成負數或超收 | 3 個測試失敗：剩 1 點時兩邊同時點名 → 餘額 **−1**；退費與點名同時進行 → 剩 9 點卻退 **8,000**（多退 800）；剩 1 個名額時兩筆預約同時送出 → 小班 **5 人** | 點名、修正、請假、退費、補課預約與取消、停課、選課，都在第一次讀取前開始交易（SQLite `BEGIN IMMEDIATE`，寫入依序排隊） | `ConcurrencyTests` ×3（暫存檔資料庫＋第二條連線先佔寫入鎖，確定性重現；連續執行 5 次皆通過） |
 | R-3 | 沒有 CI 與 LICENSE | — | 新增 GitHub Actions（restore → 警告視為錯誤建置 → 測試 → 上傳測試結果）；新增 MIT 授權 | — |
 
-## 附錄：單元測試清單（68 個案例，全部通過）
+### 第二輪審查
+
+| # | 問題 | 重現結果（修正前） | 修正 | 新增測試 |
+|---|---|---|---|---|
+| R-4 | 事後補點名可以繞過退費保護：保護只在「修正點名」，沒有在「點名」 | 3 個測試失敗：10/20 未點名 → 10/25 退費 → 10/26 重新購買 → 10/27 補點 10/20，出席與缺席都從新買的批次扣點，請假則產生新的補課資格 | 點名也套用同一條規則：場次開始時間早於最近一次退費者不得補點名；退費後重新購買、之後才上的課照常點名 | `Session_before_refund_cannot_be_recorded_late_even_after_repurchase` ×3、`Session_after_repurchase_can_be_recorded_normally` |
+| R-5 | 扣點未限制「購買日不得晚於場次日期」，README 也沒寫 | 現行行為，非錯誤 | **維持允許**：補點舊場次時，家長可能事後才買點數補足欠的課；若禁止，老師實際上了課卻永遠無法點名。退費情境已由 R-4 排除。README 扣點規則新增「補點名」一列說明 | `PickBatchForDeduction_can_use_a_batch_bought_after_the_session_date`（固定此行為） |
+| R-6 | 併發測試以 300 ms 時間差假設受測操作已讀取，機器慢時錯誤實作可能誤判為通過 | — | 改用 EF Core interceptor：受測操作**開始交易**時發出訊號，另一條連線才 commit。正確實作在讀取前開始交易；錯誤實作要到 SaveChanges 才開始交易，此時已讀到舊資料；沒有交易則逾時失敗 | 突變測試：把讀取移回交易外，3 個測試連續 3 次**全部失敗**；正式程式碼連續 5 次全部通過 |
+
+R-6 的過程中，第一版訊號設在「第一次讀取」，突變測試發現錯誤實作仍會通過：操作的第一次讀取是載入場次，關鍵的餘額讀取在後面，另一方因此太早 commit。改為「開始交易」後才能正確區分，這也是為什麼要用突變測試驗證測試本身。
+
+## 附錄：單元測試清單（73 個案例，全部通過）
 
 **規則層（Rules）**
 
-- CreditRulesTests：`ExpiryDate_is_six_months_after_purchase`、`ExpiryDate_clamps_to_end_of_shorter_month`、`Batch_is_usable_on_expiry_date_but_not_the_day_after`、`UsableBalance_excludes_expired_batches`、`PickBatchForDeduction_takes_the_earliest_expiring_batch_first`、`PickBatchForDeduction_skips_expired_and_empty_batches`、`PickBatchForDeduction_returns_null_when_no_usable_credit`
+- CreditRulesTests：`ExpiryDate_is_six_months_after_purchase`、`ExpiryDate_clamps_to_end_of_shorter_month`、`Batch_is_usable_on_expiry_date_but_not_the_day_after`、`UsableBalance_excludes_expired_batches`、`PickBatchForDeduction_takes_the_earliest_expiring_batch_first`、`PickBatchForDeduction_skips_expired_and_empty_batches`、`PickBatchForDeduction_returns_null_when_no_usable_credit`、`PickBatchForDeduction_can_use_a_batch_bought_after_the_session_date`
 - LeaveAndMakeupPolicyTests：`Leave_requested_24h01m_before_class_is_on_time`、`Leave_requested_23h59m_before_class_is_late`、`Leave_requested_exactly_24h_before_class_is_on_time`、`Makeup_credit_is_valid_on_day_60_but_not_day_61`、`Deducts_credit_only_for_regular_present_or_absent`（5 個案例）、`Only_regular_leave_grants_makeup_credit`
 - MoneyRulesTests：`Refund_matches_hand_calculation_with_two_prices_and_an_expired_batch`、`Refund_rounds_half_away_from_zero_once_on_the_total`、`Money_round_uses_half_away_from_zero_not_bankers_rounding`、`Revenue_matches_hand_calculation_including_a_restored_deduction`
 - ReminderRulesTests：`Flags_low_balance_at_two_credits_or_fewer`、`Flags_credits_expiring_within_30_days_inclusive`、`Used_up_batches_do_not_count_as_expiring`、`Can_match_both_conditions_at_once`
@@ -111,6 +121,6 @@
 - CreditAndAttendanceTests：`Buying_ten_lesson_plan_adds_ten_credits_expiring_in_six_months`、`Teacher_cannot_buy_credits`、`Present_or_absent_deducts_one_credit`（2 個案例）、`On_time_leave_does_not_deduct_and_grants_makeup_credit`、`Late_leave_cannot_be_recorded_as_leave_and_absence_deducts`、`Cannot_mark_present_without_credits_and_reason_is_given`、`Expired_credits_cannot_be_used_and_reason_mentions_expiry`、`Deducts_from_earliest_expiring_batch_first`、`Teacher_cannot_take_attendance_for_another_teachers_session`、`Cannot_take_attendance_before_class_starts`、`Correcting_present_to_leave_restores_credit_and_grants_makeup_then_back_to_present_reverses_both`、`Correcting_present_to_absent_does_not_touch_credits`、`Teacher_cannot_correct_attendance`
 - ScheduleAndMakeupTests：`Generates_eight_weeks_of_sessions_and_is_idempotent`、`Closure_day_cancels_all_sessions_that_day_and_no_credits_are_deducted`、`Closure_day_is_skipped_when_generating_sessions`、`Makeup_credit_older_than_60_days_cannot_be_used`、`Expired_makeup_credit_cannot_be_booked_even_for_an_earlier_session`、`Cannot_book_makeup_into_a_full_group_class`、`Makeup_bookings_count_towards_capacity`、`Cannot_book_makeup_into_other_subject_or_one_on_one`、`Makeup_present_uses_credit_without_deduction`、`Makeup_absent_forfeits_credit_without_deduction`、`Leave_from_one_on_one_grants_credit_bookable_only_in_group_class`、`Source_attendance_cannot_be_corrected_back_once_makeup_credit_is_used`
 - RefundAndReportTests：`Refund_quote_matches_hand_calculation`、`Confirmed_refund_zeroes_credits_and_blocks_further_attendance`、`Teacher_cannot_confirm_refund`、`Reminder_list_covers_low_balance_and_expiring_soon`、`Monthly_report_matches_hand_calculation`
-- RefundGuardTests：`Correction_that_changes_credits_is_rejected_after_refund`、`Correction_that_does_not_change_credits_is_still_allowed_after_refund`、`Refunded_student_cannot_be_recorded_even_as_leave`、`Refunded_student_cannot_request_leave`
-- ConcurrencyTests（暫存檔資料庫）：`Concurrent_deductions_cannot_overdraw_the_last_credit`、`Refund_racing_with_a_deduction_settles_the_latest_balance`、`Concurrent_makeup_bookings_cannot_exceed_group_capacity`
+- RefundGuardTests：`Correction_that_changes_credits_is_rejected_after_refund`、`Correction_that_does_not_change_credits_is_still_allowed_after_refund`、`Refunded_student_cannot_be_recorded_even_as_leave`、`Refunded_student_cannot_request_leave`、`Session_before_refund_cannot_be_recorded_late_even_after_repurchase`（3 個案例）、`Session_after_repurchase_can_be_recorded_normally`
+- ConcurrencyTests（暫存檔資料庫＋開始交易訊號）：`Concurrent_deductions_cannot_overdraw_the_last_credit`、`Refund_racing_with_a_deduction_settles_the_latest_balance`、`Concurrent_makeup_bookings_cannot_exceed_group_capacity`
 - AdminServiceTests：`Changing_plan_price_does_not_affect_purchased_batches`、`Cannot_enroll_more_than_capacity`、`Teacher_cannot_read_student_details`、`Teacher_only_sees_own_courses_and_sessions`、`Courses_are_listed_from_monday_to_sunday_then_by_time`
