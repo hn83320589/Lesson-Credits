@@ -1,0 +1,81 @@
+@page "/reports/monthly"
+@attribute [Authorize(Roles = "Owner")]
+@rendermode InteractiveServer
+@inherits AppPage
+@inject ReportService ReportService
+@inject LessonCredits.Core.Time.TaipeiClock Clock
+
+<PageTitle>月報</PageTitle>
+
+<div class="d-flex align-items-center mb-3 gap-2">
+    <h1 class="h3 mb-0 me-auto">月報</h1>
+    <button class="btn btn-outline-secondary" @onclick="() => MoveAsync(-1)">‹ 上個月</button>
+    <input type="month" class="form-control w-auto" value="@month.ToString("yyyy-MM")" @onchange="OnMonthChangedAsync" />
+    <button class="btn btn-outline-secondary" @onclick="() => MoveAsync(1)">下個月 ›</button>
+</div>
+
+<Alerts Error="@Error" />
+
+@if (report is not null)
+{
+    <h2 class="h5">@report.Year 年 @report.Month 月</h2>
+    <table class="table align-middle">
+        <thead>
+            <tr><th>老師</th><th class="text-end">授課堂數</th><th class="text-end">扣點數</th><th class="text-end">認列點數收入</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var r in report.Rows)
+            {
+                <tr>
+                    <td>@r.TeacherName</td>
+                    <td class="text-end">@r.LessonCount</td>
+                    <td class="text-end">@r.DeductedCredits</td>
+                    <td class="text-end">@Fmt.Money(r.Revenue)</td>
+                </tr>
+            }
+        </tbody>
+        <tfoot>
+            <tr class="table-light fw-bold">
+                <td>合計</td>
+                <td class="text-end">@report.TotalLessons</td>
+                <td class="text-end">@report.TotalCredits</td>
+                <td class="text-end">@Fmt.Money(report.TotalRevenue)</td>
+            </tr>
+        </tfoot>
+    </table>
+    <ul class="small text-muted">
+        <li>月份依「場次日期」歸屬；事後修正點名會反映在該場次所屬月份。</li>
+        <li>授課堂數：當月已點名、且至少一位學生出席（含補課出席）的場次。</li>
+        <li>點數收入：當月場次實際扣掉的點數（出席、缺席）× 該批點數的購買單價，扣除修正還原的點數，依老師分別四捨五入到元。補課與請假不扣點，不認列收入。</li>
+    </ul>
+}
+
+@code {
+    private DateOnly month;
+    private MonthlyReport? report;
+
+    protected override Task LoadAsync()
+    {
+        var today = Clock.Today;
+        month = new DateOnly(today.Year, today.Month, 1);
+        return ReloadAsync();
+    }
+
+    private async Task ReloadAsync() => report = await ReportService.GetMonthlyReportAsync(month.Year, month.Month);
+
+    private Task MoveAsync(int months)
+    {
+        month = month.AddMonths(months);
+        return ReloadAsync();
+    }
+
+    private Task OnMonthChangedAsync(ChangeEventArgs e)
+    {
+        if (DateOnly.TryParseExact($"{e.Value}-01", "yyyy-MM-dd", out var parsed))
+        {
+            month = parsed;
+        }
+
+        return ReloadAsync();
+    }
+}

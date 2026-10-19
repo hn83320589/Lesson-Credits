@@ -1,0 +1,193 @@
+@page "/students/{StudentId:int}"
+@attribute [Authorize(Roles = "Owner")]
+@rendermode InteractiveServer
+@inherits AppPage
+@inject AdminService AdminService
+@inject CreditService CreditService
+@inject MakeupService MakeupService
+
+<PageTitle>學生點數明細</PageTitle>
+
+<a href="students" class="small">‹ 學生列表</a>
+
+@if (detail is null)
+{
+    <Alerts Error="@Error" />
+}
+else
+{
+    <div class="d-flex align-items-center mt-2 mb-3 gap-2 flex-wrap">
+        <h1 class="h3 mb-0 me-auto">
+            @detail.Name
+            @if (!detail.IsActive)
+            {
+                <span class="badge bg-secondary fs-6 align-middle">已退費</span>
+            }
+        </h1>
+        <a class="btn btn-outline-danger" href="students/@StudentId/refund">退費試算</a>
+    </div>
+    <p class="text-muted">家長：@detail.ParentName　@detail.ParentPhone</p>
+
+    <Alerts Error="@Error" Message="@Message" />
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card text-center h-100">
+                <div class="card-body">
+                    <div class="text-muted small">可用點數</div>
+                    <div class="display-6 @(detail.UsableBalance <= ReminderRules.LowBalanceThreshold ? "text-danger" : "")">@detail.UsableBalance</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-8">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="small text-muted mb-2">購買點數（到期日為購買日起 6 個月）</div>
+                    <div class="d-flex gap-2">
+                        <select class="form-select" @bind="planId">
+                            @foreach (var plan in plans.Where(p => p.IsActive))
+                            {
+                                <option value="@plan.Id">@plan.Name：@plan.Lessons 堂 @Fmt.Money(plan.Price)</option>
+                            }
+                        </select>
+                        <button class="btn btn-primary text-nowrap" @onclick="PurchaseAsync">購買</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h2 class="h5">點數批次</h2>
+    <table class="table table-sm align-middle">
+        <thead>
+            <tr><th>方案</th><th>購買日</th><th>到期日</th><th class="text-end">堂數</th><th class="text-end">金額</th><th class="text-end">單價</th><th class="text-end">剩餘</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var b in detail.Batches)
+            {
+                <tr class="@(b.IsExpired ? "text-muted" : "")">
+                    <td>@b.PlanName</td>
+                    <td>@Fmt.Date(b.PurchasedOn)</td>
+                    <td>@Fmt.Date(b.ExpiresOn)</td>
+                    <td class="text-end">@b.Lessons</td>
+                    <td class="text-end">@Fmt.Money(b.Amount)</td>
+                    <td class="text-end">@Fmt.Money(b.UnitPrice)</td>
+                    <td class="text-end fw-bold">@b.Remaining</td>
+                    <td>
+                        @if (b.IsExpired)
+                        {
+                            <span class="badge bg-secondary">已過期</span>
+                        }
+                        else if (b.Remaining > 0 && b.ExpiresOn <= today.AddDays(ReminderRules.ExpiryWindowDays))
+                        {
+                            <span class="badge bg-warning text-dark">即將到期</span>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <h2 class="h5 mt-4">補課資格</h2>
+    @if (credits.Count == 0)
+    {
+        <p class="text-muted small">沒有補課資格。</p>
+    }
+    else
+    {
+        <table class="table table-sm">
+            <thead><tr><th>科目</th><th>產生日</th><th>有效至</th><th>狀態</th><th>預約場次</th></tr></thead>
+            <tbody>
+                @foreach (var c in credits)
+                {
+                    <tr>
+                        <td>@c.Subject.Label()</td>
+                        <td>@Fmt.Date(c.IssuedOn)</td>
+                        <td>@Fmt.Date(c.ExpiresOn)</td>
+                        <td>@(c.IsExpired ? "已逾期" : c.Status.Label())</td>
+                        <td>@(c.BookedSessionStartAt is { } at ? $"{c.BookedCourseName} {Fmt.DateTime(at)}" : "")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    <h2 class="h5 mt-4">點數流水帳</h2>
+    <table class="table table-sm">
+        <thead><tr><th>時間</th><th>類型</th><th class="text-end">點數</th><th>批次</th><th>場次</th></tr></thead>
+        <tbody>
+            @foreach (var e in detail.Entries)
+            {
+                <tr>
+                    <td>@Fmt.DateTime(e.OccurredAt)</td>
+                    <td><span class="badge @Fmt.EntryBadge(e.Type)">@e.Type.Label()</span></td>
+                    <td class="text-end">@(e.Quantity > 0 ? "+" : "")@e.Quantity</td>
+                    <td class="small">#@e.BatchId @e.PlanName</td>
+                    <td class="small">@(e.SessionStartAt is { } at ? $"{e.CourseName} {Fmt.DateTime(at)}" : "")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <h2 class="h5 mt-4">出缺勤紀錄</h2>
+    <table class="table table-sm">
+        <thead><tr><th>場次</th><th>課程</th><th>狀態</th><th>備註</th></tr></thead>
+        <tbody>
+            @foreach (var a in detail.Attendances)
+            {
+                <tr>
+                    <td>@Fmt.DateTime(a.SessionStartAt)</td>
+                    <td>@a.CourseName @(a.IsMakeup ? "（補課）" : "")</td>
+                    <td><span class="badge @Fmt.StatusBadge(a.Status)">@a.Status.Label()</span></td>
+                    <td class="small text-muted">@a.CorrectionNote</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    @if (detail.Refunds.Count > 0)
+    {
+        <h2 class="h5 mt-4">退費紀錄</h2>
+        <ul>
+            @foreach (var r in detail.Refunds)
+            {
+                <li>@Fmt.DateTime(r.ConfirmedAt) 退費 @Fmt.Money(r.TotalAmount)</li>
+            }
+        </ul>
+    }
+}
+
+@code {
+    [Parameter] public int StudentId { get; set; }
+
+    [Inject] private LessonCredits.Core.Time.TaipeiClock Clock { get; set; } = default!;
+
+    private StudentDetail? detail;
+    private List<Plan> plans = [];
+    private List<MakeupCreditView> credits = [];
+    private int planId;
+    private DateOnly today;
+
+    protected override async Task LoadAsync()
+    {
+        today = Clock.Today;
+        detail = await AdminService.GetStudentDetailAsync(StudentId, Actor);
+        plans = await AdminService.ListPlansAsync();
+        credits = await MakeupService.ListCreditsAsync(StudentId);
+        if (planId == 0)
+        {
+            planId = plans.FirstOrDefault(p => p.IsActive)?.Id ?? 0;
+        }
+    }
+
+    private async Task PurchaseAsync()
+    {
+        CreditBatch? batch = null;
+        await RunAsync(async () => batch = await CreditService.PurchaseAsync(StudentId, planId, Actor));
+        if (batch is not null)
+        {
+            await LoadAsync();
+            Message = $"已購買 {batch.PlanName}（{batch.Lessons} 堂），到期日 {Fmt.Date(batch.ExpiresOn)}。";
+        }
+    }
+}

@@ -1,6 +1,6 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
+<div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
-        <a class="navbar-brand" href="">LessonCredits.Web</a>
+        <a class="navbar-brand" href="">才藝教室點數管理</a>
     </div>
 </div>
 
@@ -10,21 +10,50 @@
     <nav class="nav flex-column">
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
+                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> 場次與點名
             </NavLink>
         </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="counter">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Counter
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="weather">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Weather
-            </NavLink>
-        </div>
+        <AuthorizeView Roles="Owner">
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="students">
+                    <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> 學生與點數
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="parents">
+                    <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> 家長
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="makeup">
+                    <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> 補課預約
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="courses">
+                    <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> 課程
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="closures">
+                    <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> 停課日
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="plans">
+                    <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> 點數方案
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="reports/reminders">
+                    <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> 提醒名單
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="reports/monthly">
+                    <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> 月報
+                </NavLink>
+            </div>
+        </AuthorizeView>
     </nav>
 </div>
-

@@ -1,23 +1,31 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 
 <div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+    <AuthorizeView>
+        <div class="sidebar">
+            <NavMenu />
+        </div>
+    </AuthorizeView>
 
     <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
+        <AuthorizeView>
+            <div class="top-row px-4">
+                <span class="me-3 text-muted">@context.User.Identity?.Name（@(context.User.IsInRole("Owner") ? "店長" : "老師")）</span>
+                <form method="post" action="logout" class="d-inline">
+                    <AntiforgeryToken />
+                    <button type="submit" class="btn btn-link p-0">登出</button>
+                </form>
+            </div>
+        </AuthorizeView>
 
-        <article class="content px-4">
+        <article class="content px-4 py-3">
             @Body
         </article>
     </main>
 </div>
 
 <div id="blazor-error-ui" data-nosnippet>
-    An unhandled error has occurred.
-    <a href="." class="reload">Reload</a>
+    發生未預期的錯誤。
+    <a href="." class="reload">重新載入</a>
     <span class="dismiss">🗙</span>
 </div>

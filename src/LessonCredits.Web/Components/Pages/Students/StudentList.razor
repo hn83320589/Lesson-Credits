@@ -1,0 +1,52 @@
+@page "/students"
+@attribute [Authorize(Roles = "Owner")]
+@rendermode InteractiveServer
+@inherits AppPage
+@inject AdminService AdminService
+
+<PageTitle>學生與點數</PageTitle>
+
+<div class="d-flex align-items-center mb-3">
+    <h1 class="h3 mb-0 me-auto">學生與點數</h1>
+    <input class="form-control w-auto" placeholder="搜尋學生或家長" @bind="keyword" @bind:event="oninput" />
+</div>
+
+<Alerts Error="@Error" />
+
+@if (students is not null)
+{
+    <table class="table table-hover align-middle">
+        <thead>
+            <tr><th>學生</th><th>家長</th><th class="text-end">可用點數</th><th>最近到期日</th><th>狀態</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var s in Filtered)
+            {
+                <tr>
+                    <td>@s.Name</td>
+                    <td>@s.ParentName</td>
+                    <td class="text-end @(s.UsableBalance <= ReminderRules.LowBalanceThreshold ? "text-danger fw-bold" : "")">@s.UsableBalance</td>
+                    <td>@(s.NextExpiry is { } d ? Fmt.Date(d) : "—")</td>
+                    <td>
+                        @if (!s.IsActive)
+                        {
+                            <span class="badge bg-secondary">已退費</span>
+                        }
+                    </td>
+                    <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="students/@s.Id">點數明細</a></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <p class="text-muted small">共 @students.Count 位學生。可用點數不含已過期點數。</p>
+}
+
+@code {
+    private List<StudentListRow>? students;
+    private string keyword = "";
+
+    private IEnumerable<StudentListRow> Filtered => students!
+        .Where(s => keyword.Length == 0 || s.Name.Contains(keyword) || s.ParentName.Contains(keyword));
+
+    protected override async Task LoadAsync() => students = await AdminService.ListStudentsAsync(Actor);
+}

@@ -1,0 +1,80 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@using System.ComponentModel.DataAnnotations
+@using LessonCredits.Core.Data
+@using LessonCredits.Web.Auth
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IPasswordHasher<User> Hasher
+@inject NavigationManager Navigation
+
+@* 刻意不設定 rendermode：登入必須是一般 HTTP POST 才能寫入 Cookie，互動模式走 SignalR 無法設定 Cookie *@
+
+<PageTitle>登入</PageTitle>
+
+<div class="row justify-content-center mt-5">
+    <div class="col-md-5 col-lg-4">
+        <h1 class="h3 mb-4">才藝教室點數管理</h1>
+        @if (!string.IsNullOrEmpty(error))
+        {
+            <div class="alert alert-danger">@error</div>
+        }
+        <EditForm Model="Input!" method="post" OnValidSubmit="LoginAsync" FormName="login">
+            <DataAnnotationsValidator />
+            <div class="mb-3">
+                <label for="username" class="form-label">帳號</label>
+                <InputText id="username" @bind-Value="Input!.UserName" class="form-control" autocomplete="username" />
+                <ValidationMessage For="() => Input!.UserName" />
+            </div>
+            <div class="mb-3">
+                <label for="password" class="form-label">密碼</label>
+                <InputText id="password" type="password" @bind-Value="Input!.Password" class="form-control" autocomplete="current-password" />
+                <ValidationMessage For="() => Input!.Password" />
+            </div>
+            <button type="submit" class="btn btn-primary w-100">登入</button>
+        </EditForm>
+        <div class="card mt-4">
+            <div class="card-body small text-muted">
+                範例帳號：店長 <code>owner</code> / <code>owner123</code>；
+                老師 <code>chen</code>、<code>lin</code>、<code>wang</code>、<code>huang</code> / <code>teacher123</code>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm] private LoginModel? Input { get; set; }
+
+    [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
+
+    private string? error;
+
+    protected override void OnInitialized() => Input ??= new();
+
+    private async Task LoginAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var principal = await AuthExtensions.ValidateAsync(db, Hasher, Input!.UserName.Trim(), Input.Password);
+        if (principal is null)
+        {
+            error = "帳號或密碼錯誤。";
+            return;
+        }
+
+        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+        // 只允許站內相對路徑，避免開放式重新導向
+        var target = !string.IsNullOrEmpty(ReturnUrl) && ReturnUrl.StartsWith('/') && !ReturnUrl.StartsWith("//") ? ReturnUrl : "/";
+        Navigation.NavigateTo(target, forceLoad: true);
+    }
+
+    private sealed class LoginModel
+    {
+        [Required(ErrorMessage = "請輸入帳號")] public string UserName { get; set; } = "";
+        [Required(ErrorMessage = "請輸入密碼")] public string Password { get; set; } = "";
+    }
+}

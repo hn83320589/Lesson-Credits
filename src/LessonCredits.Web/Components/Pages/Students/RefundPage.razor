@@ -1,0 +1,112 @@
+@page "/students/{StudentId:int}/refund"
+@attribute [Authorize(Roles = "Owner")]
+@rendermode InteractiveServer
+@inherits AppPage
+@inject AdminService AdminService
+@inject RefundService RefundService
+
+<PageTitle>退費試算</PageTitle>
+
+<a href="students/@StudentId" class="small">‹ 學生點數明細</a>
+
+@if (student is not null && quote is not null)
+{
+    <h1 class="h3 mt-2">退費試算：@student.Name</h1>
+    <p class="text-muted">家長：@student.ParentName　@student.ParentPhone</p>
+
+    <Alerts Error="@Error" Message="@Message" />
+
+    @if (quote.Lines.Count == 0)
+    {
+        <p class="text-muted">此學生沒有剩餘點數，無需退費。</p>
+    }
+    else
+    {
+        <table class="table align-middle">
+            <thead>
+                <tr><th>批次</th><th>購買日</th><th>到期日</th><th class="text-end">剩餘點數</th><th class="text-end">單價</th><th class="text-end">可退金額</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var line in quote.Lines)
+                {
+                    var batch = student.Batches.Single(b => b.Id == line.Batch.BatchId);
+                    <tr class="@(line.IsExpired ? "text-muted" : "")">
+                        <td>#@batch.Id @batch.PlanName（@Fmt.Money(batch.Amount) / @batch.Lessons 堂）</td>
+                        <td>@Fmt.Date(batch.PurchasedOn)</td>
+                        <td>@Fmt.Date(batch.ExpiresOn)</td>
+                        <td class="text-end">@line.Batch.Remaining</td>
+                        <td class="text-end">@Fmt.Money(line.Batch.UnitPrice)</td>
+                        <td class="text-end">
+                            @if (line.IsExpired)
+                            {
+                                <span class="badge bg-secondary">已過期不退</span>
+                            }
+                            else
+                            {
+                                @Fmt.Money(line.Amount)
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+            <tfoot>
+                <tr>
+                    <th colspan="5" class="text-end">小計</th>
+                    <td class="text-end">@Fmt.Money(quote.ExactTotal)</td>
+                </tr>
+                <tr class="table-light">
+                    <th colspan="5" class="text-end">可退金額（四捨五入到元）</th>
+                    <th class="text-end fs-5">@Fmt.Money(quote.Total)</th>
+                </tr>
+            </tfoot>
+        </table>
+
+        <div class="alert alert-warning">
+            確認退費後，此學生<strong>所有批次的剩餘點數（含已過期）將歸零</strong>，未使用的補課資格作廢，並留下退費紀錄。此操作無法復原。
+        </div>
+        @if (!confirming)
+        {
+            <button class="btn btn-danger" @onclick="() => confirming = true">確認退費 @Fmt.Money(quote.Total)</button>
+        }
+        else
+        {
+            <span class="me-2">確定要退費給 @student.ParentName 嗎？</span>
+            <button class="btn btn-danger" @onclick="ConfirmAsync">確定退費</button>
+            <button class="btn btn-outline-secondary" @onclick="() => confirming = false">取消</button>
+        }
+    }
+
+    <div class="small text-muted mt-4">
+        計算方式：未過期的剩餘點數 × 該批購買時的單價（金額 ÷ 堂數）加總，於總額四捨五入到元；已過期點數不退。
+    </div>
+}
+else
+{
+    <Alerts Error="@Error" />
+}
+
+@code {
+    [Parameter] public int StudentId { get; set; }
+
+    private StudentDetail? student;
+    private RefundQuote? quote;
+    private bool confirming;
+
+    protected override async Task LoadAsync()
+    {
+        student = await AdminService.GetStudentDetailAsync(StudentId, Actor);
+        quote = await RefundService.QuoteAsync(StudentId);
+    }
+
+    private async Task ConfirmAsync()
+    {
+        Refund? refund = null;
+        await RunAsync(async () => refund = await RefundService.ConfirmAsync(StudentId, Actor));
+        confirming = false;
+        if (refund is not null)
+        {
+            await LoadAsync();
+            Message = $"已完成退費 {Fmt.Money(refund.TotalAmount)}，剩餘點數已歸零。";
+        }
+    }
+}

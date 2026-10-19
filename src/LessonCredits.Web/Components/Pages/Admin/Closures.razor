@@ -1,0 +1,58 @@
+@page "/closures"
+@attribute [Authorize(Roles = "Owner")]
+@rendermode InteractiveServer
+@inherits AppPage
+@inject AdminService AdminService
+@inject ScheduleService ScheduleService
+@inject LessonCredits.Core.Time.TaipeiClock Clock
+
+<PageTitle>停課日</PageTitle>
+
+<h1 class="h3 mb-3">停課日</h1>
+
+<Alerts Error="@Error" Message="@Message" />
+
+<div class="card mb-4">
+    <div class="card-body d-flex gap-2 flex-wrap">
+        <input type="date" class="form-control w-auto" @bind="date" />
+        <input class="form-control w-auto" placeholder="原因（例如國定假日）" @bind="reason" />
+        <button class="btn btn-danger" @onclick="AddAsync">標記停課</button>
+    </div>
+    <div class="card-footer small text-muted">
+        標記後當天所有場次取消、不扣任何點數，已預約的補課資格退回可使用；當天已有點名紀錄時不可停課。
+    </div>
+</div>
+
+<table class="table">
+    <thead><tr><th>日期</th><th>原因</th></tr></thead>
+    <tbody>
+        @foreach (var c in closures)
+        {
+            <tr><td>@Fmt.Date(c.Date)</td><td>@c.Reason</td></tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    private List<ClosureDay> closures = [];
+    private DateOnly date;
+    private string reason = "";
+
+    protected override async Task LoadAsync()
+    {
+        closures = await AdminService.ListClosureDaysAsync();
+        if (date == default)
+        {
+            date = Clock.Today.AddDays(1);
+        }
+    }
+
+    private async Task AddAsync()
+    {
+        if (await RunAsync(() => ScheduleService.AddClosureDayAsync(date, reason, Actor), $"已將 {Fmt.Date(date)} 設為停課日，當天場次已取消。"))
+        {
+            reason = "";
+            await LoadAsync();
+        }
+    }
+}

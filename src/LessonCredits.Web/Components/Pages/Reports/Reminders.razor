@@ -1,0 +1,50 @@
+@page "/reports/reminders"
+@attribute [Authorize(Roles = "Owner")]
+@rendermode InteractiveServer
+@inherits AppPage
+@inject ReportService ReportService
+
+<PageTitle>提醒名單</PageTitle>
+
+<h1 class="h3 mb-3">提醒名單</h1>
+<p class="text-muted small">
+    列出在學學生中，可用點數 @ReminderRules.LowBalanceThreshold 點以下，或有點數將在 @ReminderRules.ExpiryWindowDays 天內到期者。
+</p>
+
+<Alerts Error="@Error" />
+
+@if (rows is not null)
+{
+    <table class="table align-middle">
+        <thead><tr><th>學生</th><th>家長</th><th>電話</th><th class="text-end">可用點數</th><th>最近到期日</th><th>提醒原因</th></tr></thead>
+        <tbody>
+            @foreach (var r in rows)
+            {
+                <tr>
+                    <td><a href="students/@r.StudentId">@r.StudentName</a></td>
+                    <td>@r.ParentName</td>
+                    <td>@r.ParentPhone</td>
+                    <td class="text-end">@r.Flags.UsableBalance</td>
+                    <td>@(r.Flags.NextExpiry is { } d ? Fmt.Date(d) : "—")</td>
+                    <td>
+                        @if (r.Flags.LowBalance)
+                        {
+                            <span class="badge bg-danger me-1">點數不足</span>
+                        }
+                        @if (r.Flags.ExpiringSoon)
+                        {
+                            <span class="badge bg-warning text-dark">即將到期</span>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <p class="text-muted small">共 @rows.Count 位。</p>
+}
+
+@code {
+    private List<ReminderRow>? rows;
+
+    protected override async Task LoadAsync() => rows = await ReportService.GetRemindersAsync();
+}

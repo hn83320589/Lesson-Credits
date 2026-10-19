@@ -1,0 +1,148 @@
+@page "/courses"
+@attribute [Authorize(Roles = "Owner")]
+@rendermode InteractiveServer
+@inherits AppPage
+@inject AdminService AdminService
+@inject ScheduleService ScheduleService
+
+<PageTitle>課程</PageTitle>
+
+<div class="d-flex align-items-center mb-3">
+    <h1 class="h3 mb-0 me-auto">課程</h1>
+    <button class="btn btn-outline-primary" @onclick="GenerateAsync">補產生未來 8 週場次</button>
+</div>
+
+<Alerts Error="@Error" Message="@Message" />
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h6">新增課程</h2>
+        <div class="row g-2">
+            <div class="col-md-3"><input class="form-control" placeholder="課程名稱" @bind="form.Name" /></div>
+            <div class="col-md-2">
+                <select class="form-select" @bind="form.Subject">
+                    @foreach (var s in Enum.GetValues<Subject>()) { <option value="@s">@s.Label()</option> }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select class="form-select" @bind="form.Type">
+                    @foreach (var t in Enum.GetValues<CourseType>()) { <option value="@t">@t.Label()@(t == CourseType.Group ? $"（上限 {Course.GroupCapacity} 人）" : "")</option> }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select class="form-select" @bind="form.TeacherId">
+                    @foreach (var t in teachers) { <option value="@t.Id">@t.Name</option> }
+                </select>
+            </div>
+            <div class="col-md-1">
+                <select class="form-select" @bind="form.DayOfWeek">
+                    @foreach (var d in Enum.GetValues<DayOfWeek>()) { <option value="@d">@Fmt.Weekday(d)</option> }
+                </select>
+            </div>
+            <div class="col-md-1"><input type="time" class="form-control" @bind="form.StartTime" /></div>
+            <div class="col-md-1"><button class="btn btn-primary w-100" @onclick="AddAsync">新增</button></div>
+        </div>
+    </div>
+</div>
+
+@foreach (var c in courses)
+{
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <h2 class="h6 mb-0 me-auto">
+                    @c.Name
+                    <span class="badge bg-light text-dark border">@c.Subject.Label()・@c.Type.Label()</span>
+                </h2>
+                <span class="text-muted small">@c.TeacherName 老師　每@(Fmt.Weekday(c.DayOfWeek)) @c.StartTime.ToString("HH:mm")（@c.DurationMinutes 分鐘）　@c.Students.Count / @c.Capacity 人</span>
+            </div>
+            <div class="mt-2 d-flex flex-wrap gap-1 align-items-center">
+                @foreach (var s in c.Students)
+                {
+                    <span class="badge bg-primary-subtle text-dark border">
+                        @s.Name
+                        <button class="btn btn-sm p-0 ms-1 border-0" title="移出課程" @onclick="() => UnenrollAsync(c.Id, s.Id)">×</button>
+                    </span>
+                }
+                @if (c.Students.Count < c.Capacity)
+                {
+                    <select class="form-select form-select-sm w-auto" @bind="enrollPick[c.Id]">
+                        <option value="0">加入學生…</option>
+                        @foreach (var s in students.Where(s => s.IsActive && c.Students.All(x => x.Id != s.Id)))
+                        {
+                            <option value="@s.Id">@s.Name（@s.UsableBalance 點）</option>
+                        }
+                    </select>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="() => EnrollAsync(c.Id)">加入</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<CourseRow> courses = [];
+    private List<Teacher> teachers = [];
+    private List<StudentListRow> students = [];
+    private Dictionary<int, int> enrollPick = [];
+    private CourseForm form = new();
+
+    protected override async Task LoadAsync()
+    {
+        courses = await AdminService.ListCoursesAsync(Actor);
+        teachers = await AdminService.ListTeachersAsync();
+        students = await AdminService.ListStudentsAsync(Actor);
+        enrollPick = courses.ToDictionary(c => c.Id, _ => 0);
+        if (form.TeacherId == 0)
+        {
+            form.TeacherId = teachers.FirstOrDefault()?.Id ?? 0;
+        }
+    }
+
+    private async Task AddAsync()
+    {
+        var input = new NewCourse(form.Name, form.Subject, form.Type, form.TeacherId, form.DayOfWeek, TimeOnly.FromDateTime(form.StartTime), 60);
+        Course? course = null;
+        await RunAsync(async () => course = await AdminService.AddCourseAsync(input, Actor));
+        if (course is not null)
+        {
+            var count = await ScheduleService.GenerateSessionsAsync(course.Id);
+            form = new CourseForm { TeacherId = form.TeacherId };
+            await LoadAsync();
+            Message = $"已新增課程「{course.Name}」，並產生 {count} 個場次。";
+        }
+    }
+
+    private async Task GenerateAsync()
+    {
+        var count = await ScheduleService.GenerateSessionsAsync();
+        Message = count == 0 ? "未來 8 週的場次都已產生。" : $"已補產生 {count} 個場次。";
+    }
+
+    private async Task EnrollAsync(int courseId)
+    {
+        var studentId = enrollPick[courseId];
+        if (studentId != 0 && await RunAsync(() => AdminService.EnrollAsync(courseId, studentId, Actor), "已加入課程。"))
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task UnenrollAsync(int courseId, int studentId)
+    {
+        if (await RunAsync(() => AdminService.UnenrollAsync(courseId, studentId, Actor), "已移出課程。"))
+        {
+            await LoadAsync();
+        }
+    }
+
+    private sealed class CourseForm
+    {
+        public string Name { get; set; } = "";
+        public Subject Subject { get; set; }
+        public CourseType Type { get; set; } = CourseType.Group;
+        public int TeacherId { get; set; }
+        public DayOfWeek DayOfWeek { get; set; } = DayOfWeek.Monday;
+        public DateTime StartTime { get; set; } = DateTime.Today.AddHours(16);
+    }
+}

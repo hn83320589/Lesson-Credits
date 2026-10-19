@@ -1,0 +1,58 @@
+@page "/plans"
+@attribute [Authorize(Roles = "Owner")]
+@rendermode InteractiveServer
+@inherits AppPage
+@inject AdminService AdminService
+
+<PageTitle>點數方案</PageTitle>
+
+<h1 class="h3 mb-3">點數方案</h1>
+
+<Alerts Error="@Error" Message="@Message" />
+
+<table class="table align-middle">
+    <thead><tr><th>名稱</th><th style="width:8rem">堂數</th><th style="width:10rem">價格</th><th>單價</th><th>販售中</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var p in forms)
+        {
+            <tr>
+                <td><input class="form-control form-control-sm" @bind="p.Name" /></td>
+                <td><input type="number" min="1" class="form-control form-control-sm" @bind="p.Lessons" /></td>
+                <td><input type="number" min="0" class="form-control form-control-sm" @bind="p.Price" /></td>
+                <td class="text-muted">@(p.Lessons > 0 ? Fmt.Money((decimal)p.Price / p.Lessons) : "—")</td>
+                <td><input type="checkbox" class="form-check-input" @bind="p.IsActive" /></td>
+                <td><button class="btn btn-sm btn-outline-primary" @onclick="() => SaveAsync(p)">@(p.Id is null ? "新增" : "儲存")</button></td>
+            </tr>
+        }
+    </tbody>
+</table>
+<p class="small text-muted">調整價格只影響之後的購買；已購買的點數維持購買當時的單價。</p>
+
+@code {
+    private List<PlanForm> forms = [];
+
+    protected override async Task LoadAsync()
+    {
+        forms = (await AdminService.ListPlansAsync())
+            .Select(p => new PlanForm { Id = p.Id, Name = p.Name, Lessons = p.Lessons, Price = p.Price, IsActive = p.IsActive })
+            .Append(new PlanForm { IsActive = true })
+            .ToList();
+    }
+
+    private async Task SaveAsync(PlanForm p)
+    {
+        if (await RunAsync(() => AdminService.SavePlanAsync(p.Id, p.Name, p.Lessons, p.Price, p.IsActive, Actor), $"已儲存方案「{p.Name}」。"))
+        {
+            await LoadAsync();
+        }
+    }
+
+    private sealed class PlanForm
+    {
+        public int? Id { get; set; }
+        public string Name { get; set; } = "";
+        public int Lessons { get; set; }
+        public int Price { get; set; }
+        public bool IsActive { get; set; }
+    }
+}

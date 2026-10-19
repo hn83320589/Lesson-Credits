@@ -1,0 +1,202 @@
+@page "/sessions/{SessionId:int}"
+@rendermode InteractiveServer
+@inherits AppPage
+@inject AttendanceService AttendanceService
+
+<PageTitle>點名</PageTitle>
+
+<a href="" class="small">‹ 回到場次列表</a>
+
+@if (roster is null)
+{
+    <Alerts Error="@Error" />
+    @if (Error is null)
+    {
+        <p>載入中…</p>
+    }
+}
+else
+{
+    <h1 class="h3 mt-2">@roster.CourseName</h1>
+    <p class="text-muted mb-3">
+        @Fmt.DateTime(roster.StartAt)　@roster.Subject.Label()・@roster.CourseType.Label()　@roster.TeacherName 老師
+        @if (roster.Status == SessionStatus.Cancelled)
+        {
+            <span class="badge bg-secondary ms-2">停課</span>
+        }
+    </p>
+
+    <Alerts Error="@Error" Message="@Message" />
+
+    @if (roster.Status == SessionStatus.Scheduled && !roster.CanRecord)
+    {
+        <div class="alert alert-light border small">
+            尚未開始上課，可以登記請假；開始上課後才能點名。請假需於上課 24 小時前（@roster.StartAt.AddHours(-24).ToString("MM/dd HH:mm") 以前）提出才不扣點並產生補課資格。
+        </div>
+    }
+
+    <table class="table align-middle">
+        <thead>
+            <tr>
+                <th>學生</th>
+                <th>剩餘點數</th>
+                <th>請假紀錄</th>
+                <th>點名</th>
+                @if (Actor.IsOwner)
+                {
+                    <th>修正（店長）</th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in roster.Rows)
+            {
+                <tr>
+                    <td>
+                        @row.StudentName
+                        @if (row.IsMakeup)
+                        {
+                            <span class="badge bg-info text-dark ms-1">補課</span>
+                        }
+                    </td>
+                    <td>
+                        @if (row.IsMakeup)
+                        {
+                            <span class="text-muted small">補課不扣點</span>
+                        }
+                        else if (row.UsableBalance < 1)
+                        {
+                            <span class="text-danger fw-bold">0 點</span>
+                            <div class="small text-danger">點數不足，無法點名為出席</div>
+                        }
+                        else
+                        {
+                            <span>@row.UsableBalance 點</span>
+                        }
+                    </td>
+                    <td class="small">
+                        @if (row.Leave is { } leave)
+                        {
+                            <div>@leave.RequestedAt.ToString("MM/dd HH:mm") 提出</div>
+                            <span class="badge @(leave.IsOnTime ? "bg-info text-dark" : "bg-danger")">@(leave.IsOnTime ? "準時請假" : "逾時請假，視為缺席")</span>
+                        }
+                        else if (roster.CanRequestLeave && !row.IsMakeup)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => RequestLeaveAsync(row)">登記請假</button>
+                        }
+                    </td>
+                    <td>
+                        @if (row.Status is { } status)
+                        {
+                            <span class="badge @Fmt.StatusBadge(status)">@status.Label()</span>
+                            @if (row.CorrectionNote is not null)
+                            {
+                                <div class="small text-muted">已修正：@row.CorrectionNote</div>
+                            }
+                        }
+                        else if (roster.CanRecord)
+                        {
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-success" @onclick="() => RecordAsync(row, AttendanceStatus.Present)">出席</button>
+                                @if (!row.IsMakeup)
+                                {
+                                    <button class="btn btn-outline-info" @onclick="() => RecordAsync(row, AttendanceStatus.Leave)">請假</button>
+                                }
+                                <button class="btn btn-outline-danger" @onclick="() => RecordAsync(row, AttendanceStatus.Absent)">缺席</button>
+                            </div>
+                        }
+                        else
+                        {
+                            <span class="text-muted small">未點名</span>
+                        }
+                    </td>
+                    @if (Actor.IsOwner)
+                    {
+                        <td>
+                            @if (row.AttendanceId is { } attendanceId)
+                            {
+                                var form = Correction(attendanceId);
+                                <div class="d-flex gap-1">
+                                    <select class="form-select form-select-sm" style="width:6rem" @bind="form.Status">
+                                        @foreach (var option in Enum.GetValues<AttendanceStatus>().Where(s => s != row.Status && !(row.IsMakeup && s == AttendanceStatus.Leave)))
+                                        {
+                                            <option value="@option">@option.Label()</option>
+                                        }
+                                    </select>
+                                    <input class="form-control form-control-sm" placeholder="修正原因" @bind="form.Note" />
+                                    <button class="btn btn-sm btn-outline-warning text-nowrap" @onclick="() => CorrectAsync(attendanceId)">修正</button>
+                                </div>
+                            }
+                        </td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <div class="small text-muted">
+        規則：出席、缺席各扣 1 點；準時請假不扣點並產生 60 天內有效的補課資格；補課出席或缺席都不扣點，補課缺席資格作廢。
+    </div>
+}
+
+@code {
+    [Parameter] public int SessionId { get; set; }
+
+    private SessionRoster? roster;
+    private readonly Dictionary<int, CorrectionForm> corrections = [];
+
+    protected override async Task LoadAsync() => roster = await AttendanceService.GetRosterAsync(SessionId, Actor);
+
+    private async Task RequestLeaveAsync(RosterRow row)
+    {
+        LeaveRequest? leave = null;
+        await RunAsync(async () => leave = await AttendanceService.RequestLeaveAsync(SessionId, row.StudentId, Actor));
+        if (leave is not null)
+        {
+            Message = leave.IsOnTime
+                ? $"已登記 {row.StudentName} 請假（準時，將產生補課資格）。"
+                : $"已登記 {row.StudentName} 請假，但距上課不足 24 小時，視為缺席。";
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task RecordAsync(RosterRow row, AttendanceStatus status)
+    {
+        if (await RunAsync(() => AttendanceService.RecordAsync(SessionId, row.StudentId, status, Actor), $"{row.StudentName}：{status.Label()}"))
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task CorrectAsync(int attendanceId)
+    {
+        var form = Correction(attendanceId);
+        if (await RunAsync(() => AttendanceService.CorrectAsync(attendanceId, form.Status, form.Note, Actor), "已修正點名，點數與補課資格已同步調整。"))
+        {
+            corrections.Remove(attendanceId);
+            await LoadAsync();
+        }
+    }
+
+    private CorrectionForm Correction(int attendanceId)
+    {
+        if (!corrections.TryGetValue(attendanceId, out var form))
+        {
+            var row = roster!.Rows.Single(r => r.AttendanceId == attendanceId);
+            form = new CorrectionForm
+            {
+                Status = Enum.GetValues<AttendanceStatus>().First(s => s != row.Status && !(row.IsMakeup && s == AttendanceStatus.Leave)),
+            };
+            corrections[attendanceId] = form;
+        }
+
+        return form;
+    }
+
+    private sealed class CorrectionForm
+    {
+        public AttendanceStatus Status { get; set; }
+        public string Note { get; set; } = "";
+    }
+}

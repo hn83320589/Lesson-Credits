@@ -1,0 +1,96 @@
+@page "/"
+@rendermode InteractiveServer
+@inherits AppPage
+@inject AttendanceService AttendanceService
+@inject LessonCredits.Core.Time.TaipeiClock Clock
+
+<PageTitle>場次與點名</PageTitle>
+
+<div class="d-flex align-items-center mb-3 gap-2 flex-wrap">
+    <h1 class="h3 mb-0 me-auto">場次與點名</h1>
+    <button class="btn btn-outline-secondary" @onclick="() => MoveAsync(-7)">‹ 上週</button>
+    <button class="btn btn-outline-secondary" @onclick="ThisWeekAsync">本週</button>
+    <button class="btn btn-outline-secondary" @onclick="() => MoveAsync(7)">下週 ›</button>
+</div>
+<p class="text-muted">@Fmt.Date(weekStart) ～ @Fmt.Date(weekStart.AddDays(6))@(Actor.IsOwner ? "" : "　（僅顯示您的課程）")</p>
+
+<Alerts Error="@Error" Message="@Message" />
+
+@if (sessions is null)
+{
+    <p>載入中…</p>
+}
+else if (sessions.Count == 0)
+{
+    <p class="text-muted">本週沒有場次。</p>
+}
+else
+{
+    @foreach (var day in sessions.GroupBy(s => DateOnly.FromDateTime(s.StartAt)))
+    {
+        <h2 class="h6 mt-4 @(day.Key == today ? "text-primary fw-bold" : "")">@Fmt.Date(day.Key)@(day.Key == today ? "　今天" : "")</h2>
+        <table class="table table-sm table-hover align-middle">
+            <thead>
+                <tr><th style="width:6rem">時間</th><th>課程</th><th>老師</th><th>人數</th><th>狀態</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var s in day)
+                {
+                    <tr class="@(s.Status == SessionStatus.Cancelled ? "text-decoration-line-through text-muted" : "")">
+                        <td>@s.StartAt.ToString("HH:mm")</td>
+                        <td>@s.CourseName <span class="badge bg-light text-dark border">@s.CourseType.Label()</span></td>
+                        <td>@s.TeacherName</td>
+                        <td>@s.StudentCount</td>
+                        <td>
+                            @if (s.Status == SessionStatus.Cancelled)
+                            {
+                                <span class="badge bg-secondary">停課</span>
+                            }
+                            else if (s.RecordedCount >= s.StudentCount && s.StudentCount > 0)
+                            {
+                                <span class="badge bg-success">已點名</span>
+                            }
+                            else if (s.StartAt <= now)
+                            {
+                                <span class="badge bg-warning text-dark">待點名 @s.RecordedCount/@s.StudentCount</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-light text-dark border">未開始</span>
+                            }
+                        </td>
+                        <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="sessions/@s.SessionId">開啟</a></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    private List<SessionSummary>? sessions;
+    private DateOnly weekStart;
+    private DateOnly today;
+    private DateTime now;
+
+    protected override Task LoadAsync()
+    {
+        today = Clock.Today;
+        weekStart = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
+        return ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        now = Clock.Now;
+        sessions = await AttendanceService.ListSessionsAsync(weekStart, weekStart.AddDays(6), Actor);
+    }
+
+    private Task MoveAsync(int days)
+    {
+        weekStart = weekStart.AddDays(days);
+        return ReloadAsync();
+    }
+
+    private Task ThisWeekAsync() => LoadAsync();
+}
