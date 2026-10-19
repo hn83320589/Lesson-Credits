@@ -8,22 +8,25 @@ namespace LessonCredits.Tests.Services;
 /// <summary>
 /// 模擬兩個操作同時讀到相同的餘額或人數。
 /// 做法：另一條連線先取得寫入鎖（BEGIN IMMEDIATE），代表「另一位老師正在點名」；
-/// 受測操作開始後，另一條連線才寫入並 commit。
-/// 若受測操作在交易外先讀取，會讀到過期的資料，最後扣成負數或超收；
+/// 等受測操作開始交易（<see cref="TransactionStartingSignal"/>），另一條連線才寫入並 commit。
+/// 若受測操作在交易外先讀取，此時已讀到過期的資料，最後扣成負數或超收；
 /// 若讀取前就開始交易，會等到鎖釋放才讀，讀到的是最新資料。
+/// 交錯時機由訊號決定，不依賴時間差，所以機器快慢不影響結果。
 /// </summary>
 public class ConcurrencyTests : IDisposable
 {
     private static readonly DateTime ClassStart = new(2026, 10, 20, 16, 0, 0);
 
-    /// <summary>給受測操作足夠時間開始執行：若在交易外讀取，這段時間內就已讀到舊資料。</summary>
-    private static readonly TimeSpan HeadStart = TimeSpan.FromMilliseconds(300);
+    /// <summary>只用來避免測試在出錯時卡住，不影響交錯時機。</summary>
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
-    private readonly TestEnv _env = new(useFileDatabase: true);
+    private readonly TransactionStartingSignal _signal = new();
+    private readonly TestEnv _env;
     private readonly int _teacher;
 
     public ConcurrencyTests()
     {
+        _env = new TestEnv(useFileDatabase: true, _signal);
         _teacher = _env.AddTeacher();
     }
 
@@ -37,8 +40,9 @@ public class ConcurrencyTests : IDisposable
         _env.SetNow(ClassStart.AddMinutes(30));
 
         using var other = HoldWriteLock();
+        var started = _signal.Arm();
         var record = Task.Run(() => _env.Attendance.RecordAsync(session, student, AttendanceStatus.Present, _env.Owner));
-        await Task.Delay(HeadStart);
+        await started.WaitAsync(Timeout);
         Execute(other, $"INSERT INTO CreditEntries (BatchId, Type, Quantity, OccurredAt) VALUES ({batch}, 'Deduct', -1, '2026-10-20 16:10:00'); COMMIT;");
 
         var ex = await Assert.ThrowsAsync<BusinessRuleException>(() => record);
@@ -55,8 +59,9 @@ public class ConcurrencyTests : IDisposable
         var batch = _env.AddBatch(student, new DateOnly(2026, 10, 1), 10, 8000);
 
         using var other = HoldWriteLock();
+        var started = _signal.Arm();
         var confirm = Task.Run(() => _env.Refunds.ConfirmAsync(student, _env.Owner));
-        await Task.Delay(HeadStart);
+        await started.WaitAsync(Timeout);
         Execute(other, $"INSERT INTO CreditEntries (BatchId, Type, Quantity, OccurredAt) VALUES ({batch}, 'Deduct', -1, '2026-10-19 09:59:00'); COMMIT;");
 
         var refund = await confirm;
@@ -75,8 +80,9 @@ public class ConcurrencyTests : IDisposable
         var second = await CreateMakeupCreditAsync("乙");
 
         using var other = HoldWriteLock();
+        var started = _signal.Arm();
         var book = Task.Run(() => _env.Makeup.BookAsync(first, group, _env.Owner));
-        await Task.Delay(HeadStart);
+        await started.WaitAsync(Timeout);
         Execute(other, $"INSERT INTO MakeupBookings (MakeupCreditId, SessionId, IsCancelled) VALUES ({second}, {group}, 0); " +
                        $"UPDATE MakeupCredits SET Status = 'Booked' WHERE Id = {second}; COMMIT;");
 

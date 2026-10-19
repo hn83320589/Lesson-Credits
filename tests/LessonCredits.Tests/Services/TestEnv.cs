@@ -4,6 +4,7 @@ using LessonCredits.Core.Services;
 using LessonCredits.Core.Time;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Time.Testing;
 
 namespace LessonCredits.Tests.Services;
@@ -17,20 +18,20 @@ public sealed class TestEnv : IDisposable
 {
     private readonly SqliteConnection? _sharedConnection;
 
-    public TestEnv(bool useFileDatabase = false)
+    public TestEnv(bool useFileDatabase = false, params IInterceptor[] interceptors)
     {
         DbContextOptions<AppDbContext> options;
         if (useFileDatabase)
         {
             // 關閉連線池，結束時才能刪除暫存檔
             ConnectionString = $"Data Source={Path.Combine(Path.GetTempPath(), $"lessoncredits-test-{Guid.NewGuid():N}.db")};Pooling=False";
-            options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(ConnectionString).Options;
+            options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(ConnectionString).AddInterceptors(interceptors).Options;
         }
         else
         {
             _sharedConnection = new SqliteConnection("DataSource=:memory:");
             _sharedConnection.Open();
-            options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_sharedConnection).Options;
+            options = new DbContextOptionsBuilder<AppDbContext>().UseSqlite(_sharedConnection).AddInterceptors(interceptors).Options;
         }
 
         Factory = new TestDbContextFactory(options);
