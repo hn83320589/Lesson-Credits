@@ -2,6 +2,10 @@
 {
     <div class="alert alert-danger" role="alert">@Error</div>
 }
+@if (!string.IsNullOrEmpty(Warning))
+{
+    <div class="alert alert-warning" role="status">@Warning</div>
+}
 @if (!string.IsNullOrEmpty(Message))
 {
     <div class="alert alert-success" role="status">@Message</div>
@@ -9,5 +13,6 @@
 
 @code {
     [Parameter] public string? Error { get; set; }
+    [Parameter] public string? Warning { get; set; }
     [Parameter] public string? Message { get; set; }
 }

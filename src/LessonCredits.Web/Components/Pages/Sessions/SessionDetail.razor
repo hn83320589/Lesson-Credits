@@ -26,7 +26,7 @@ else
         }
     </p>
 
-    <Alerts Error="@Error" Message="@Message" />
+    <Alerts Error="@Error" Warning="@Warning" Message="@Message" />
 
     @if (roster.Status == SessionStatus.Scheduled && !roster.CanRecord)
     {
@@ -151,11 +151,13 @@ else
     {
         LeaveRequest? leave = null;
         await RunAsync(async () => leave = await AttendanceService.RequestLeaveAsync(SessionId, row.StudentId, Actor));
-        if (leave is not null)
+        if (leave is { IsOnTime: true })
         {
-            Message = leave.IsOnTime
-                ? $"已登記 {row.StudentName} 請假（準時，將產生補課資格）。"
-                : $"已登記 {row.StudentName} 請假，但距上課不足 24 小時，視為缺席。";
+            Message = $"已登記 {row.StudentName} 請假（準時，將產生補課資格）。";
+        }
+        else if (leave is not null)
+        {
+            Warning = $"已登記 {row.StudentName} 請假，但距上課不足 24 小時，視為缺席（仍會扣點）。";
         }
 
         await LoadAsync();

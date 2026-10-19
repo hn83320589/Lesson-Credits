@@ -16,6 +16,7 @@ public abstract class AppPage : ComponentBase
 
     protected Actor Actor { get; private set; } = default!;
     protected string? Error { get; set; }
+    protected string? Warning { get; set; }
     protected string? Message { get; set; }
 
     protected override async Task OnInitializedAsync()
@@ -29,6 +30,7 @@ public abstract class AppPage : ComponentBase
     protected async Task<bool> RunAsync(Func<Task> action, string? success = null)
     {
         Error = null;
+        Warning = null;
         Message = null;
         try
         {
