@@ -86,6 +86,44 @@ public class RefundGuardTests : IDisposable
         Assert.Contains("退費", ex.Message);
     }
 
+    [Theory]
+    [InlineData(AttendanceStatus.Present)]
+    [InlineData(AttendanceStatus.Absent)]
+    [InlineData(AttendanceStatus.Leave)]
+    public async Task Session_before_refund_cannot_be_recorded_late_even_after_repurchase(AttendanceStatus status)
+    {
+        // 10/20 當天沒點名 → 10/25 退費 → 10/26 重新購買（恢復在學）→ 10/27 補點 10/20
+        _env.SetNow(ClassStart.AddDays(-2));
+        await _env.Attendance.RequestLeaveAsync(_session, _student, _env.Owner);
+        _env.SetNow(new DateTime(2026, 10, 25, 10, 0, 0));
+        await _env.Refunds.ConfirmAsync(_student, _env.Owner);
+        _env.SetNow(new DateTime(2026, 10, 26, 10, 0, 0));
+        await _env.Credits.PurchaseAsync(_student, _env.AddPlan(10, 8000), _env.Owner);
+        _env.SetNow(new DateTime(2026, 10, 27, 10, 0, 0));
+
+        var ex = await Assert.ThrowsAsync<BusinessRuleException>(
+            () => _env.Attendance.RecordAsync(_session, _student, status, _env.Owner));
+
+        Assert.Contains("退費", ex.Message);
+        Assert.Equal(10, _env.Balance(_student));
+        using var db = _env.Db();
+        Assert.Empty(db.Attendances);
+        Assert.Empty(db.MakeupCredits);
+    }
+
+    [Fact]
+    public async Task Session_after_repurchase_can_be_recorded_normally()
+    {
+        _env.SetNow(new DateTime(2026, 10, 15, 10, 0, 0));
+        await _env.Refunds.ConfirmAsync(_student, _env.Owner);
+        await _env.Credits.PurchaseAsync(_student, _env.AddPlan(10, 8000), _env.Owner);
+        _env.SetNow(ClassStart.AddMinutes(30));
+
+        await _env.Attendance.RecordAsync(_session, _student, AttendanceStatus.Present, _env.Owner);
+
+        Assert.Equal(9, _env.Balance(_student));
+    }
+
     private async Task<int> AttendanceIdAsync()
     {
         using var db = _env.Db();

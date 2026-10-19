@@ -170,6 +170,7 @@ public class AttendanceService(IDbContextFactory<AppDbContext> dbFactory, Taipei
         }
 
         await EnsureStudentActiveAsync(db, studentId);
+        await EnsureNoRefundAfterAsync(db, studentId, session.StartAt, "無法再補點名（退費後重新購買的點數不能用來補扣退費前的課）。");
 
         var attendance = new Attendance
         {
@@ -233,7 +234,9 @@ public class AttendanceService(IDbContextFactory<AppDbContext> dbFactory, Taipei
         }
         else if (ChangesCreditsOrMakeup(oldStatus, newStatus))
         {
-            await EnsureNoRefundAfterAsync(db, attendance);
+            await EnsureNoRefundAfterAsync(
+                db, attendance.StudentId, attendance.Session!.StartAt,
+                "無法再修正會影響點數或補課資格的點名紀錄（出席與缺席互改仍可修正）。");
             await ApplyCorrectionEffectsAsync(db, attendance, oldStatus, newStatus, now);
         }
 
@@ -249,20 +252,20 @@ public class AttendanceService(IDbContextFactory<AppDbContext> dbFactory, Taipei
         || AttendanceEffects.GrantsMakeup(oldStatus, isMakeup: false) != AttendanceEffects.GrantsMakeup(newStatus, isMakeup: false);
 
     /// <summary>
-    /// 退費時已依當下剩餘點數結清金額。之後若還原或重扣該場次的點數，
-    /// 點數會在退費後重新出現（或變成負數）且不在退費金額內，帳與錢就對不起來。
+    /// 退費時已依當下剩餘點數結清金額。退費之前的場次若再扣點、還原或產生補課資格，
+    /// 點數會在退費後重新出現、變成負數，或從退費後新買的批次扣掉，且都不在退費金額內，帳與錢就對不起來。
+    /// 補點名與修正點名是同一種帳務情境，套用同一條規則。
     /// </summary>
-    private static async Task EnsureNoRefundAfterAsync(AppDbContext db, Attendance attendance)
+    private static async Task EnsureNoRefundAfterAsync(AppDbContext db, int studentId, DateTime sessionStartAt, string consequence)
     {
         var refundedAt = await db.Refunds
-            .Where(r => r.StudentId == attendance.StudentId && r.ConfirmedAt > attendance.Session!.StartAt)
+            .Where(r => r.StudentId == studentId && r.ConfirmedAt > sessionStartAt)
             .OrderBy(r => r.ConfirmedAt)
             .Select(r => (DateTime?)r.ConfirmedAt)
             .FirstOrDefaultAsync();
         if (refundedAt is { } at)
         {
-            throw new BusinessRuleException(
-                $"此學生已於 {at:yyyy-MM-dd} 退費並結清點數，無法再修正會影響點數或補課資格的點名紀錄（出席與缺席互改仍可修正）。");
+            throw new BusinessRuleException($"此學生已於 {at:yyyy-MM-dd} 退費並結清點數，此場次在退費之前，{consequence}");
         }
     }
 
