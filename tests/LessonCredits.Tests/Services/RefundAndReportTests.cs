@@ -39,7 +39,7 @@ public class RefundAndReportTests : IDisposable
         _env.SetNow(new DateTime(2026, 10, 20, 16, 30, 0));
         var ex = await Assert.ThrowsAsync<BusinessRuleException>(() => _env.Attendance.RecordAsync(
             session, student, AttendanceStatus.Present, _env.Owner));
-        Assert.Contains("點數不足", ex.Message);
+        Assert.Contains("已退費", ex.Message);
     }
 
     [Fact]

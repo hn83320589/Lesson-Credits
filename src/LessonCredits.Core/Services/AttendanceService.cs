@@ -132,6 +132,8 @@ public class AttendanceService(IDbContextFactory<AppDbContext> dbFactory, Taipei
             throw new BusinessRuleException("只有本課程的固定學生可以請假；補課預約請改用取消預約。");
         }
 
+        await EnsureStudentActiveAsync(db, studentId);
+
         if (await db.LeaveRequests.AnyAsync(l => l.SessionId == sessionId && l.StudentId == studentId))
         {
             throw new BusinessRuleException("此學生已登記請假。");
@@ -163,6 +165,8 @@ public class AttendanceService(IDbContextFactory<AppDbContext> dbFactory, Taipei
         {
             throw new BusinessRuleException("此學生已點名；如需修改請由店長修正。");
         }
+
+        await EnsureStudentActiveAsync(db, studentId);
 
         var attendance = new Attendance
         {
@@ -222,8 +226,9 @@ public class AttendanceService(IDbContextFactory<AppDbContext> dbFactory, Taipei
         {
             RecordMakeup(attendance, attendance.MakeupBooking!, newStatus);
         }
-        else
+        else if (ChangesCreditsOrMakeup(oldStatus, newStatus))
         {
+            await EnsureNoRefundAfterAsync(db, attendance);
             await ApplyCorrectionEffectsAsync(db, attendance, oldStatus, newStatus, now);
         }
 
@@ -231,6 +236,36 @@ public class AttendanceService(IDbContextFactory<AppDbContext> dbFactory, Taipei
         attendance.CorrectedAt = now;
         attendance.CorrectionNote = $"{oldStatus.Label()} → {newStatus.Label()}：{note.Trim()}";
         await db.SaveChangesAsync();
+    }
+
+    private static bool ChangesCreditsOrMakeup(AttendanceStatus oldStatus, AttendanceStatus newStatus) =>
+        AttendanceEffects.Deducts(oldStatus, isMakeup: false) != AttendanceEffects.Deducts(newStatus, isMakeup: false)
+        || AttendanceEffects.GrantsMakeup(oldStatus, isMakeup: false) != AttendanceEffects.GrantsMakeup(newStatus, isMakeup: false);
+
+    /// <summary>
+    /// 退費時已依當下剩餘點數結清金額。之後若還原或重扣該場次的點數，
+    /// 點數會在退費後重新出現（或變成負數）且不在退費金額內，帳與錢就對不起來。
+    /// </summary>
+    private static async Task EnsureNoRefundAfterAsync(AppDbContext db, Attendance attendance)
+    {
+        var refundedAt = await db.Refunds
+            .Where(r => r.StudentId == attendance.StudentId && r.ConfirmedAt > attendance.Session!.StartAt)
+            .OrderBy(r => r.ConfirmedAt)
+            .Select(r => (DateTime?)r.ConfirmedAt)
+            .FirstOrDefaultAsync();
+        if (refundedAt is { } at)
+        {
+            throw new BusinessRuleException(
+                $"此學生已於 {at:yyyy-MM-dd} 退費並結清點數，無法再修正會影響點數或補課資格的點名紀錄（出席與缺席互改仍可修正）。");
+        }
+    }
+
+    private static async Task EnsureStudentActiveAsync(AppDbContext db, int studentId)
+    {
+        if (!await db.Students.AnyAsync(s => s.Id == studentId && s.IsActive))
+        {
+            throw new BusinessRuleException("此學生已退費，無法點名或請假；如要繼續上課，請先購買點數。");
+        }
     }
 
     private async Task ApplyCorrectionEffectsAsync(
